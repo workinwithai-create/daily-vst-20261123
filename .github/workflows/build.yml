@@ -1,0 +1,75 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package artefacts
+        shell: bash
+        run: |
+          mkdir -p package
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # VST3 is a directory
+            cp -r "build/AutumnAftertouchEnsemble_artefacts/Release/VST3/AutumnAftertouchEnsemble.vst3" package/ || true
+            cp "build/AutumnAftertouchEnsemble_artefacts/Release/Standalone/AutumnAftertouchEnsemble.exe" package/ || true
+            cd package
+            zip -r "../AutumnAftertouchEnsemble-${{ runner.os }}.zip" .
+          else
+            cp -r "build/AutumnAftertouchEnsemble_artefacts/Release/VST3/AutumnAftertouchEnsemble.vst3" package/ || true
+            cp -r "build/AutumnAftertouchEnsemble_artefacts/Release/Standalone/AutumnAftertouchEnsemble.app" package/ || true
+            cd package
+            zip -r "../AutumnAftertouchEnsemble-${{ runner.os }}.zip" .
+          fi
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutumnAftertouchEnsemble-${{ runner.os }}
+          path: AutumnAftertouchEnsemble-${{ runner.os }}.zip
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - name: Download artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: daily-${{ github.run_number }}
+          name: Daily Build ${{ github.run_number }}
+          body: |
+            Automated Release build of Autumn Aftertouch Ensemble.
+            VST3 + Standalone for macOS and Windows.
+          files: |
+            artefacts/**/*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
